@@ -10,7 +10,7 @@ let aqara
 let devices
 let gateways = []
 
-function start () {
+function start() {
   log.setLevel(config.logging)
   log._info(pkg.name + ' ' + pkg.version + ' starting')
 
@@ -42,15 +42,20 @@ function start () {
   mqttClient.on('connect', () => {
     log.info('Connected to MQTT: %s', config.mqtt)
     publishConnectionStatus()
-    mqttClient.subscribe(config.name + '/set/+/light')
+    mqttClient.subscribe(config.name + '/set/+/+')
   })
 
   mqttClient.on('message', (topic, message) => {
+
     const parts = topic.split('/')
-    if (parts[1] === 'set' && parts[3] === 'light') {
-      const gateway = gateways[parts[2]]
-      if (gateway) {
+
+    const gateway = gateways[parts[2]]
+
+    if (parts[1] === 'set') {
+      if (parts[3] === 'light') {
         handleGatewayLightUpdate(gateway, message)
+      } else if (parts[3] === 'ringtone') {
+        handleGatewayRingtone(gateway, message)
       }
     }
   })
@@ -73,12 +78,13 @@ function start () {
 
   aqara = new Aqara()
   aqara.on('gateway', (gateway) => {
-    log.info('Gateway discovered')
+    log.info(`Gateway ${gateway._sid} discovered`)
 
     gateway.on('ready', () => {
       log.info('Gateway %s ready', gateway._sid)
       gateways[gateway._sid] = gateway
       publishConnectionStatus()
+
       if (devices && devices.gateways && devices.gateways[gateway._sid]) {
         gateway.setPassword(devices.gateways[gateway._sid])
       } else if (config.password) {
@@ -90,6 +96,7 @@ function start () {
       delete gateways[gateway._sid]
       log.warn('Gateway is offline')
       publishConnectionStatus()
+
     })
 
     gateway.on('subdevice', (device) => {
@@ -121,9 +128,9 @@ function start () {
           })
           break
         case 'motion':
-          publishDeviceData(device, `${device.hasMotion() ? 'motion' : 'no_motion'}`, {lux: device.getLux()})
+          publishDeviceData(device, `${device.hasMotion() ? 'motion' : 'no_motion'}`, { lux: device.getLux() })
           device.on('motion', () => {
-            publishDeviceData(device, 'motion', {lux: device.getLux()})
+            publishDeviceData(device, 'motion', { lux: device.getLux() })
           })
           device.on('noMotion', () => {
             publishDeviceData(device, 'no_motion', { secondsSinceMotion: device.getSecondsSinceMotion(), lux: device.getLux() })
@@ -144,7 +151,7 @@ function start () {
         case 'cube':
           publishDeviceData(device, 'unknown')
           device.on('update', () => {
-            publishDeviceData(device, device.getStatus(), {rotation: device.getRotateDegrees()})
+            publishDeviceData(device, device.getStatus(), { rotation: device.getRotateDegrees() })
           })
           break
       }
@@ -159,12 +166,12 @@ function start () {
       const sid = gateway._sid
       mqttClient.publish(`${config.name}/status/light/${sid}`,
         JSON.stringify(data),
-        {qos: 0, retain: true})
+        { qos: 0, retain: true })
     })
   })
 }
 
-function handleGatewayLightUpdate (gateway, message) {
+function handleGatewayLightUpdate(gateway, message) {
   if (!gateway) return
   // TODO send message to gateway.
   log.info('Updating gateway light')
@@ -183,7 +190,28 @@ function handleGatewayLightUpdate (gateway, message) {
   }
 }
 
-function publishConnectionStatus () {
+function handleGatewayRingtone(gateway, message) {
+
+  if (!gateway) return
+  // TODO send message to gateway.
+  log.info('Playing ringtone')
+  if (IsNumeric(message)) {
+    var value = parseInt(message)
+    if (value >= 0 && value <= 100) {
+      gateway.playRingtone(value)
+    } else {
+      log.warn(`Value: ${value} not valid intensity!`)
+    }
+  } else { // Not numeric
+    try {
+      const data = JSON.parse(message)
+      // TODO do something with the data.
+      gateway.playRingtone(data.id, data.volume)
+    } catch(error){}
+  }
+}
+
+function publishConnectionStatus() {
   var status = '1'
   if (gateways.length > 0) { status = '2' }
   mqttClient.publish(config.name + '/connected', status, {
@@ -192,7 +220,7 @@ function publishConnectionStatus () {
   })
 }
 
-function publishDeviceData (device, newState, extraData = {}) {
+function publishDeviceData(device, newState, extraData = {}) {
   let data = {
     val: newState, // Using val according to the MQTT Smarthome specs.
     battery: device.getBatteryPercentage(),
@@ -205,12 +233,12 @@ function publishDeviceData (device, newState, extraData = {}) {
   log.info(`Publishing ${newState} to ${topic}`)
   mqttClient.publish(topic,
     JSON.stringify(data),
-    {qos: 0, retain: true}
+    { qos: 0, retain: true }
   )
 }
 
 let magnets = []
-function publishMagnetState (device, newState) {
+function publishMagnetState(device, newState) {
   const magnetIndex = magnets.findIndex(function (m) { return m.id === device.getSid() })
 
   if (magnetIndex > -1) {
@@ -220,12 +248,12 @@ function publishMagnetState (device, newState) {
       magnets[magnetIndex].state = newState
     }
   } else {
-    magnets.push({id: device.getSid(), state: newState})
+    magnets.push({ id: device.getSid(), state: newState })
   }
   publishDeviceData(device, newState)
 }
 
-function publishHTSensor (sensorDevice) {
+function publishHTSensor(sensorDevice) {
   const tempTopic = `${config.name}/status/temperature/${sensorDevice.getSid()}`
   const humTopic = `${config.name}/status/humidity/${sensorDevice.getSid()}`
   const presTopic = `${config.name}/status/pressure/${sensorDevice.getSid()}`
@@ -237,12 +265,12 @@ function publishHTSensor (sensorDevice) {
   }
   mqttClient.publish(tempTopic,
     JSON.stringify(data),
-    {qos: 0, retain: true}
+    { qos: 0, retain: true }
   )
   data.val = sensorDevice.getHumidity()
   mqttClient.publish(humTopic,
     JSON.stringify(data),
-    {qos: 0, retain: true}
+    { qos: 0, retain: true }
   )
 
   let pressure = sensorDevice.getPressure()
@@ -250,17 +278,17 @@ function publishHTSensor (sensorDevice) {
     data.val = pressure
     mqttClient.publish(presTopic,
       JSON.stringify(data),
-      {qos: 0, retain: true}
+      { qos: 0, retain: true }
     )
   }
 }
 
 // Usefull function
-function IsNumeric (val) {
+function IsNumeric(val) {
   return Number(parseFloat(val)) === val
 }
 
-function getFriendlyName (deviceId) {
+function getFriendlyName(deviceId) {
   if (devices && devices[deviceId]) {
     return devices[deviceId]
   }
