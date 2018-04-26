@@ -1,7 +1,7 @@
 const log = require('yalm')
 const config = require('./config.js')
 const mqtt = require('mqtt')
-const Aqara = require('lumi-aqara')
+const Aqara = require('../../node-lumi-aqara/src')
 const pkg = require('../package.json')
 const fs = require('fs')
 
